@@ -220,6 +220,10 @@ def run_rollout(data_path, controller_type, model_path, debug=False):
   sim = TinyPhysicsSimulator(tinyphysicsmodel, str(data_path), controller=controller, debug=debug)
   return sim.rollout(), sim.target_lataccel_history, sim.current_lataccel_history
 
+def run_rollout_controller(data_path, controller, model_path, debug=False):
+  tinyphysicsmodel = TinyPhysicsModel(model_path, debug=debug)
+  sim = TinyPhysicsSimulator(tinyphysicsmodel, str(data_path), controller=controller, debug=debug)
+  return sim.rollout(), sim.target_lataccel_history, sim.current_lataccel_history
 
 def download_dataset():
   print("Downloading dataset (0.6G)...")
