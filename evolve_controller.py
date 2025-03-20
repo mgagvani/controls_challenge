@@ -7,6 +7,7 @@ from random import sample
 from functools import partial
 import numpy as np
 import argparse
+import datetime
 
 from tinyphysics import CONTROL_START_IDX, run_rollout_controller
 from controllers.pid_ff import Controller as PIDFFController
@@ -38,13 +39,9 @@ class ControlEvolver:
         Evaluate the controller's performance (accel/jerk cost)
         """
         # for now, only evolve FF params
-        controller.k_ff = params 
+        controller.set_params(params)
 
         rollout_partial = partial(run_rollout_controller, controller=controller, model_path=self.model_path, debug=False)
-
-        # randomly sample some data
-        costs = []
-        sample_rollouts = []
 
         # sample the whole dataset
         files = sample(self.files, self.n_rollouts)
@@ -58,19 +55,22 @@ class ControlEvolver:
         if verbose:
             results = process_map(rollout_partial, files, max_workers=48, chunksize=5)
         else:
-            results = ProcessPoolExecutor(max_workers=48, max_tasks_per_child=5).map(rollout_partial, files)
+            results = ProcessPoolExecutor(max_workers=112, max_tasks_per_child=10).map(rollout_partial, files)
         rollout_results = [result[0] for result in results]
         # each rollout result is {'lataccel_cost': cost, 'jerk_cost': jerk_cost, 'total_cost': cost}
         total_costs = [result['total_cost'] for result in rollout_results]
         return np.mean(total_costs)
 
 
-    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=50):
+    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=150):
         """
         Evolve PID+FF controller using the CMA-ES evolution strategy
         """
         if initial_params is None:
-            initial_params = np.array([0.25, 0.125, 0.0625])
+            initial_params = np.array([0.16536978, 0.08370059, -0.08547805, 0.12820117, 0.24433865, 0.08398031])
+
+        # plusminus_bounds = np.array([0.025, 0.025, 0.025, 1, 1, 1])
+        # bounds = [[i - b, i + b] for i, b in zip(initial_params, plusminus_bounds)]
         
         def fitness(params):
             return self.fitness_function(self.controller, params)
@@ -79,13 +79,17 @@ class ControlEvolver:
                                       sigma0=sigma,
                                       options=
                                       {'tolstagnation': 0,
-                                       'bounds': [0, 10],
-                                       'popsize': 25,},
+                                       'bounds': [-1.5, 2.5],
+                                       'popsize': 30,
+                                       'maxiter': max_iter,},
                                       )
         
         best_params = initial_params
         best_fitness = fitness(initial_params)
         print(f"Initial fitness: {best_fitness}")
+
+        # file for logging
+        log_file = open(f"tmp/cmaes_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "w")
         
         iteration = 0
         history = []
@@ -95,9 +99,9 @@ class ControlEvolver:
                     solutions = es.ask()
                     fitnesses = []
                     for s in solutions:
-                        fitness = fitness(s)
-                        fitnesses.append(fitness)
-                        print(f"Solution: {s}, Fitness: {fitness}")
+                        f = fitness(s)
+                        fitnesses.append(f)
+                        print(f"Solution: {s}, Fitness: {f}")
                     # fitnesses = [fitness(s) for s in solutions]
                     es.tell(solutions, fitnesses)
                     
@@ -111,6 +115,8 @@ class ControlEvolver:
                     
                     history.append((iteration, best_fitness))
                     print(f"Iteration {iteration}, Best fitness: {best_fitness}, Best params: {best_params}")
+                    log_file.write(f"Iteration {iteration}, Best fitness: {best_fitness}, Best params: {best_params}\n")
+                    log_file.flush()
                     
                     iteration += 1
                     pbar.update(1)
@@ -118,9 +124,11 @@ class ControlEvolver:
         
         except KeyboardInterrupt:
             print("keyboard interrupt...")
+
+        log_file.close()
         
         # Set the controller to the best parameters found
-        self.controller.k_ff = best_params
+        self.controller.params = best_params
         
         # Plot convergence
         iterations, fitnesses = zip(*history)
