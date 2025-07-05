@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from sklearn.mixture import GaussianMixture
 
 import glob
+import pickle
 
 def load_data(path="data/"):
     all_dfs = []
@@ -51,6 +52,11 @@ def run_gmm(features):
     # how many points in each cluster?
     for i in range(gmm.n_components):
         print(f"Cluster {i} has {np.sum(labels == i)} points")
+
+    # save gmm
+    with open("gmm_classify.pkl", "wb") as f:
+        pickle.dump(gmm, f)
+        
     return gmm, labels
 
 def viz_gmm(gmm, n=100, path="tmp/"):
