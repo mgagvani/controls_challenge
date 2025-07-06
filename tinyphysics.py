@@ -207,6 +207,7 @@ class TinyPhysicsSimulator:
     if self.debug:
       plt.ioff()
       plt.show()
+      plt.savefig(f"tmp/rollout_{Path(self.data_path).stem}.png")
     return self.compute_cost()
 
 
