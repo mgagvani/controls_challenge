@@ -1,0 +1,3 @@
+gymnasium
+stable-baselines3[extra]
+protobuf==3.20.2

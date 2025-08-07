@@ -181,8 +181,11 @@ class TinyPhysicsSimulator:
     ax.set_ylabel(axis_labels[1])
 
   def compute_cost(self) -> Dict[str, float]:
-    target = np.array(self.target_lataccel_history)[CONTROL_START_IDX:COST_END_IDX]
-    pred = np.array(self.current_lataccel_history)[CONTROL_START_IDX:COST_END_IDX]
+    target = np.array(self.target_lataccel_history)[CONTROL_START_IDX:self.step_idx]
+    pred = np.array(self.current_lataccel_history)[CONTROL_START_IDX:self.step_idx]
+
+    if len(pred) < 2:
+        return {'lataccel_cost': 0, 'jerk_cost': 0, 'total_cost': 0}
 
     lat_accel_cost = np.mean((target - pred)**2) * 100
     jerk_cost = np.mean((np.diff(pred) / DEL_T)**2) * 100
