@@ -16,10 +16,10 @@ class Controller(BaseController):
     ):
         # [Kp, Ki, Kd, Kff1, Kff2, Kff3, alpha_mix, integ_limit, integ_leak, deriv_alpha, u_smooth, k_roll]
         self.params = np.array([
-            0.18306031, 0.09336665, -0.02,      # PID (add small damping)
+            0.18306031, 0.09336665, 0.00482326,  # PID (restore original Kd)
             0.34426038, -0.39974145, 0.40310848, # FF (baseline)
             0.70,        # alpha_mix
-            1e6,         # integ_limit (effectively disabled)
+            10.0,        # integ_limit (finite to satisfy optimizer bounds)
             0.0,         # integ_leak disabled
             0.5,         # derivative smoothing alpha
             0.05,        # slight control smoothing
@@ -92,9 +92,9 @@ class Controller(BaseController):
             + self.pid()[2] * self.prev_deriv
         )
 
-        # Feed-forward over smoothed future lataccel
+        # Feed-forward over smoothed future lataccel (use fixed window=4 to match original behavior)
         future_len = len(future_plan.lataccel)
-        window = min(self.lookahead, future_len)
+        window = 4 if future_len > 0 else 1
         if window <= 0:
             all_lataccel = np.zeros(self.lookahead, dtype=float)
             window = 1

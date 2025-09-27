@@ -62,7 +62,7 @@ class ControlEvolver:
         return np.mean(total_costs)
 
 
-    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=150, popsize=30, bounds=(-2.5, 2.5)):
+    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=150, popsize=30, bounds=None):
         """
         Evolve PID+FF controller using the CMA-ES evolution strategy
         """
@@ -76,11 +76,17 @@ class ControlEvolver:
         def fitness(params):
             return self.fitness_function(self.controller, params)
         
+        if bounds is None:
+            # per-parameter bounds: PID/FF near [-2.5, 2.5], alpha/ratios in [0,1], integrator clamp [0, 50]
+            lower = np.array([-2.5, -2.5, -2.5,  -2.5, -2.5, -2.5,   0.0,   0.0,  0.0,  0.0,  0.0, -2.5], dtype=float)
+            upper = np.array([ 2.5,  2.5,  2.5,   2.5,  2.5,  2.5,   1.0,  50.0,  1.0,  1.0,  1.0,  2.5], dtype=float)
+            bounds = (lower, upper)
+
         es = cma.CMAEvolutionStrategy(x0=initial_params, 
                                       sigma0=sigma,
                                       options=
                                       {'tolstagnation': 0,
-                                       'bounds': [bounds[0], bounds[1]],
+                                       'bounds': bounds,
                                        'popsize': popsize,
                                        'maxiter': max_iter,},
                                       )
