@@ -8,6 +8,8 @@ from functools import partial
 import numpy as np
 import argparse
 import datetime
+import json
+import os
 
 from tinyphysics import CONTROL_START_IDX, run_rollout_controller
 from controllers.pid_ff import Controller as PIDFFController
@@ -62,11 +64,13 @@ class ControlEvolver:
         return np.mean(total_costs)
 
 
-    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=150, popsize=30, bounds=None):
+    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=150, popsize=30, bounds=None, stop_below=None, checkpoint_path=None, resume_from=None):
         """
         Evolve PID+FF controller using the CMA-ES evolution strategy
         """
-        if initial_params is None:
+        if resume_from is not None:
+            initial_params = np.load(resume_from)
+        elif initial_params is None:
             # derive dimensionality from controller
             initial_params = np.array(self.controller.params, dtype=float)
 
@@ -96,9 +100,12 @@ class ControlEvolver:
         print(f"Initial fitness: {best_fitness}")
 
         # file for logging
-        import os
         os.makedirs('tmp', exist_ok=True)
-        log_file = open(f"tmp/cmaes_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "w")
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_path = f"tmp/cmaes_log_{timestamp}.txt"
+        log_file = open(log_path, "w")
+        ckpt_path = checkpoint_path or "tmp/best_pidff_params.npy"
+        meta_path = "tmp/best_pidff_meta.json"
         
         iteration = 0
         history = []
@@ -121,11 +128,24 @@ class ControlEvolver:
                     if current_best_fitness < best_fitness:
                         best_fitness = current_best_fitness
                         best_params = current_best_solution
+                        # checkpoint best
+                        np.save(ckpt_path, best_params)
+                        with open(meta_path, 'w') as mf:
+                            json.dump({
+                                'best_fitness': float(best_fitness),
+                                'best_params': [float(x) for x in best_params],
+                                'iteration': int(iteration),
+                                'log_path': log_path,
+                                'timestamp': timestamp,
+                            }, mf)
                     
                     history.append((iteration, best_fitness))
                     print(f"Iteration {iteration}, Best fitness: {best_fitness}, Best params: {best_params}")
                     log_file.write(f"Iteration {iteration}, Best fitness: {best_fitness}, Best params: {best_params}\n")
                     log_file.flush()
+                    # early stop if threshold achieved
+                    if stop_below is not None and best_fitness < stop_below:
+                        break
                     
                     iteration += 1
                     pbar.update(1)
@@ -140,15 +160,16 @@ class ControlEvolver:
         self.controller.params = best_params
         
         # Plot convergence
-        iterations, fitnesses = zip(*history)
-        plt.figure(figsize=(10, 6))
-        plt.plot(iterations, fitnesses)
-        plt.title('CMA-ES Convergence')
-        plt.xlabel('Iteration')
-        plt.ylabel('Fitness (Cost)')
-        plt.grid(True)
-        plt.savefig('cmaes_convergence.png')
-        plt.close()
+        if history:
+            iterations, fitnesses = zip(*history)
+            plt.figure(figsize=(10, 6))
+            plt.plot(iterations, fitnesses)
+            plt.title('CMA-ES Convergence')
+            plt.xlabel('Iteration')
+            plt.ylabel('Fitness (Cost)')
+            plt.grid(True)
+            plt.savefig('cmaes_convergence.png')
+            plt.close()
         
         return best_params, best_fitness
 
@@ -167,6 +188,9 @@ if __name__ == "__main__":
     parser.add_argument("--sigma", type=float, default=0.3)
     parser.add_argument("--max_iter", type=int, default=150)
     parser.add_argument("--popsize", type=int, default=30)
+    parser.add_argument("--stop_below", type=float, default=None)
+    parser.add_argument("--checkpoint_path", type=str, default=None)
+    parser.add_argument("--resume_from", type=str, default=None)
     args = parser.parse_args()
 
     controller = PIDFFController()
@@ -180,7 +204,14 @@ if __name__ == "__main__":
     )
 
     # Run evolution to find optimal parameters
-    best_params, best_fitness = evolver.evolve_pidff_controller(sigma=args.sigma, max_iter=args.max_iter, popsize=args.popsize)
+    best_params, best_fitness = evolver.evolve_pidff_controller(
+        sigma=args.sigma,
+        max_iter=args.max_iter,
+        popsize=args.popsize,
+        stop_below=args.stop_below,
+        checkpoint_path=args.checkpoint_path,
+        resume_from=args.resume_from,
+    )
     print(f"Best params: {best_params}, Best fitness: {best_fitness}")
     
     # Just test with default parameters
