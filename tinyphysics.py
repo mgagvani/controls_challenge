@@ -3,7 +3,12 @@ import importlib
 import numpy as np
 import onnxruntime as ort
 import os
-import pandas as pd
+try:
+  import pandas as pd  # type: ignore
+  _HAVE_PANDAS = True
+except Exception:
+  pd = None  # type: ignore
+  _HAVE_PANDAS = False
 import matplotlib.pyplot as plt
 import seaborn as sns
 import signal
@@ -116,16 +121,66 @@ class TinyPhysicsSimulator:
     seed = int(md5(self.data_path.encode()).hexdigest(), 16) % 10**4
     np.random.seed(seed)
 
-  def get_data(self, data_path: str) -> pd.DataFrame:
-    df = pd.read_csv(data_path)
-    processed_df = pd.DataFrame({
-      'roll_lataccel': np.sin(df['roll'].values) * ACC_G,
-      'v_ego': df['vEgo'].values,
-      'a_ego': df['aEgo'].values,
-      'target_lataccel': df['targetLateralAcceleration'].values,
-      'steer_command': -df['steerCommand'].values  # steer commands are logged with left-positive convention but this simulator uses right-positive
-    })
-    return processed_df
+  def get_data(self, data_path: str):
+    if _HAVE_PANDAS:
+      df = pd.read_csv(data_path)
+      processed_df = pd.DataFrame({
+        'roll_lataccel': np.sin(df['roll'].values) * ACC_G,
+        'v_ego': df['vEgo'].values,
+        'a_ego': df['aEgo'].values,
+        'target_lataccel': df['targetLateralAcceleration'].values,
+        'steer_command': -df['steerCommand'].values
+      })
+      return processed_df
+    
+    # Fallback minimal reader without pandas
+    import csv
+
+    columns = {
+      'roll': [],
+      'vEgo': [],
+      'aEgo': [],
+      'targetLateralAcceleration': [],
+      'steerCommand': [],
+    }
+    with open(data_path, 'r') as f:
+      reader = csv.DictReader(f)
+      for row in reader:
+        for k in columns:
+          columns[k].append(float(row[k]))
+
+    roll = np.asarray(columns['roll'], dtype=float)
+    vEgo = np.asarray(columns['vEgo'], dtype=float)
+    aEgo = np.asarray(columns['aEgo'], dtype=float)
+    target_lataccel = np.asarray(columns['targetLateralAcceleration'], dtype=float)
+    steer_command = -np.asarray(columns['steerCommand'], dtype=float)
+
+    data_dict = {
+      'roll_lataccel': np.sin(roll) * ACC_G,
+      'v_ego': vEgo,
+      'a_ego': aEgo,
+      'target_lataccel': target_lataccel,
+      'steer_command': steer_command,
+    }
+
+    class _Series:
+      def __init__(self, arr):
+        self.values = arr
+
+    class _ILoc:
+      def __init__(self, df_dict):
+        self._d = df_dict
+      def __getitem__(self, idx):
+        return {k: v[idx] for k, v in self._d.items()}
+
+    class _DataFrame:
+      def __init__(self, df_dict):
+        self._d = df_dict
+        self.iloc = _ILoc(df_dict)
+      def __getitem__(self, key):
+        return _Series(self._d[key])
+
+    return _DataFrame(data_dict)
 
   def sim_step(self, step_idx: int) -> None:
     pred = self.sim_model.get_current_lataccel(
@@ -259,10 +314,19 @@ if __name__ == "__main__":
     files = sorted(data_path.iterdir())[:args.num_segs]
     results = process_map(run_rollout_partial, files, max_workers=16, chunksize=10)
     costs = [result[0] for result in results]
-    costs_df = pd.DataFrame(costs)
-    print(f"\nAverage lataccel_cost: {np.mean(costs_df['lataccel_cost']):>6.4}, average jerk_cost: {np.mean(costs_df['jerk_cost']):>6.4}, average total_cost: {np.mean(costs_df['total_cost']):>6.4}")
-    for cost in costs_df.columns:
-      plt.hist(costs_df[cost], bins=np.arange(0, 1000, 10), label=cost, alpha=0.5)
+    if _HAVE_PANDAS:
+      costs_df = pd.DataFrame(costs)
+      print(f"\nAverage lataccel_cost: {np.mean(costs_df['lataccel_cost']):>6.4}, average jerk_cost: {np.mean(costs_df['jerk_cost']):>6.4}, average total_cost: {np.mean(costs_df['total_cost']):>6.4}")
+      for cost in costs_df.columns:
+        plt.hist(costs_df[cost], bins=np.arange(0, 1000, 10), label=cost, alpha=0.5)
+    else:
+      lataccel_cost = np.mean([c['lataccel_cost'] for c in costs])
+      jerk_cost = np.mean([c['jerk_cost'] for c in costs])
+      total_cost = np.mean([c['total_cost'] for c in costs])
+      print(f"\nAverage lataccel_cost: {lataccel_cost:>6.4}, average jerk_cost: {jerk_cost:>6.4}, average total_cost: {total_cost:>6.4}")
+      plt.hist([c['lataccel_cost'] for c in costs], bins=np.arange(0, 1000, 10), label='lataccel_cost', alpha=0.5)
+      plt.hist([c['jerk_cost'] for c in costs], bins=np.arange(0, 1000, 10), label='jerk_cost', alpha=0.5)
+      plt.hist([c['total_cost'] for c in costs], bins=np.arange(0, 1000, 10), label='total_cost', alpha=0.5)
     plt.xlabel('costs')
     plt.ylabel('Frequency')
     plt.title('costs Distribution')

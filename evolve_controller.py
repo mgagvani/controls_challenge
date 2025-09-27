@@ -53,21 +53,22 @@ class ControlEvolver:
         #     cost, target_lataccel, current_lataccel = rollout_partial(data_file)
         #     print(f"Rollout {d}: {cost}")
         if verbose:
-            results = process_map(rollout_partial, files, max_workers=48, chunksize=5)
+            results = process_map(rollout_partial, files, max_workers=16, chunksize=5)
         else:
-            results = ProcessPoolExecutor(max_workers=112, max_tasks_per_child=10).map(rollout_partial, files)
+            results = ProcessPoolExecutor(max_workers=16, max_tasks_per_child=10).map(rollout_partial, files)
         rollout_results = [result[0] for result in results]
         # each rollout result is {'lataccel_cost': cost, 'jerk_cost': jerk_cost, 'total_cost': cost}
         total_costs = [result['total_cost'] for result in rollout_results]
         return np.mean(total_costs)
 
 
-    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=150):
+    def evolve_pidff_controller(self, initial_params=None, sigma=0.3, max_iter=150, popsize=30, bounds=(-2.5, 2.5)):
         """
         Evolve PID+FF controller using the CMA-ES evolution strategy
         """
         if initial_params is None:
-            initial_params = np.array([0.16536978, 0.08370059, -0.08547805, 0.12820117, 0.24433865, 0.08398031])
+            # derive dimensionality from controller
+            initial_params = np.array(self.controller.params, dtype=float)
 
         # plusminus_bounds = np.array([0.025, 0.025, 0.025, 1, 1, 1])
         # bounds = [[i - b, i + b] for i, b in zip(initial_params, plusminus_bounds)]
@@ -79,8 +80,8 @@ class ControlEvolver:
                                       sigma0=sigma,
                                       options=
                                       {'tolstagnation': 0,
-                                       'bounds': [-1.5, 2.5],
-                                       'popsize': 30,
+                                       'bounds': [bounds[0], bounds[1]],
+                                       'popsize': popsize,
                                        'maxiter': max_iter,},
                                       )
         
@@ -89,6 +90,8 @@ class ControlEvolver:
         print(f"Initial fitness: {best_fitness}")
 
         # file for logging
+        import os
+        os.makedirs('tmp', exist_ok=True)
         log_file = open(f"tmp/cmaes_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "w")
         
         iteration = 0
@@ -155,6 +158,9 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--num_rollouts", type=int, default=100)
     parser.add_argument("--num_segs", type=int, default=100)
+    parser.add_argument("--sigma", type=float, default=0.3)
+    parser.add_argument("--max_iter", type=int, default=150)
+    parser.add_argument("--popsize", type=int, default=30)
     args = parser.parse_args()
 
     controller = PIDFFController()
@@ -168,7 +174,7 @@ if __name__ == "__main__":
     )
 
     # Run evolution to find optimal parameters
-    best_params, best_fitness = evolver.evolve_pidff_controller()
+    best_params, best_fitness = evolver.evolve_pidff_controller(sigma=args.sigma, max_iter=args.max_iter, popsize=args.popsize)
     print(f"Best params: {best_params}, Best fitness: {best_fitness}")
     
     # Just test with default parameters
