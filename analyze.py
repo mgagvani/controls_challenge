@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.mixture import GaussianMixture
+from pathlib import Path
+import argparse
 
 import glob
 import pickle
@@ -45,6 +46,7 @@ def gen_features(all_dfs):
     return features
 
 def run_gmm(features):
+    from sklearn.mixture import GaussianMixture
     gmm = GaussianMixture(n_components=3, random_state=42, verbose=2)
     gmm.fit(features)
     labels = gmm.predict(features)
@@ -88,39 +90,58 @@ def viz_gmm(gmm, n=100, path="tmp/"):
     plt.savefig(path + "gmm_samples.png", dpi=384)
 
 if __name__ == "__main__":
-    all_dfs, df = load_data()
-    features = gen_features(all_dfs)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--progress_csv', type=str, default='tmp/cmaes_progress.csv')
+    parser.add_argument('--out', type=str, default='cmaes_progress.png')
+    parser.add_argument('--mode', type=str, default='gmm', choices=['gmm','progress'])
+    args = parser.parse_args()
 
-    gmm, labels = run_gmm(features)
+    if args.mode == 'progress':
+        csv_path = Path(args.progress_csv)
+        if not csv_path.exists():
+            print(f"No progress CSV at {csv_path}")
+        else:
+            dfp = pd.read_csv(csv_path)
+            dfp = dfp.sort_values('iteration')
+            plt.figure(figsize=(10, 5))
+            plt.plot(dfp['iteration'], dfp['best_fitness'], label='Best fitness')
+            plt.xlabel('Iteration')
+            plt.ylabel('Best Fitness (Total Cost)')
+            plt.title('CMA-ES Optimization Progress')
+            plt.grid(True)
+            plt.legend()
+            plt.savefig(args.out, bbox_inches='tight')
+            print(f"Saved CMA-ES progress plot to {args.out}")
+    else:
+        all_dfs, df = load_data()
+        features = gen_features(all_dfs)
 
-    viz_gmm(gmm, n=1000, path="tmp/")
+        gmm, labels = run_gmm(features)
 
-    # plot 3D scatter.
-    # show (avg vEgo, stdev vEgo, avg abs aEgo)
-    # and also 2D (avg rol_lataccel, target_lataccel)
+        viz_gmm(gmm, n=1000, path="tmp/")
 
-    # 3d plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    scatter = ax.scatter(features[:, 0], features[:, 1], features[:, 2], c=labels, s=features[:, 1] * 10, cmap='viridis')
-    ax.set_xlabel('avg vEgo')
-    ax.set_ylabel('stdev vEgo')
-    ax.set_zlabel('avg abs aEgo')
-    ax.view_init(elev=20, azim=-50)
-    fig.suptitle('color by GMM label, size by stdev vEgo', fontsize=10)
-    cbar = fig.colorbar(scatter, ticks=np.arange(gmm.n_components))
-    cbar.set_label('GMM cluster label')
-    plt.savefig("tmp/features_vEgo_stdev_vEgo_abs_aEgo.png", dpi=384)
+        # plot 3D scatter.
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        scatter = ax.scatter(features[:, 0], features[:, 1], features[:, 2], c=labels, s=features[:, 1] * 10, cmap='viridis')
+        ax.set_xlabel('avg vEgo')
+        ax.set_ylabel('stdev vEgo')
+        ax.set_zlabel('avg abs aEgo')
+        ax.view_init(elev=20, azim=-50)
+        fig.suptitle('color by GMM label, size by stdev vEgo', fontsize=10)
+        cbar = fig.colorbar(scatter, ticks=np.arange(gmm.n_components))
+        cbar.set_label('GMM cluster label')
+        plt.savefig("tmp/features_vEgo_stdev_vEgo_abs_aEgo.png", dpi=384)
 
-    # 2d plot
-    plt.figure()
-    scatter_2d = plt.scatter(features[:, 3], features[:, 4], c=labels, s=features[:, 1] * 10, cmap='viridis')
-    plt.xlabel('avg roll')
-    plt.ylabel('avg target_lataccel')
-    plt.title('color by GMM label, size by stdev vEgo', fontsize=10)
-    cbar_2d = plt.colorbar(scatter_2d, ticks=np.arange(gmm.n_components))
-    cbar_2d.set_label('GMM cluster label')
-    plt.savefig("tmp/features_roll_target_lataccel.png", dpi=384)
+        # 2d plot
+        plt.figure()
+        scatter_2d = plt.scatter(features[:, 3], features[:, 4], c=labels, s=features[:, 1] * 10, cmap='viridis')
+        plt.xlabel('avg roll')
+        plt.ylabel('avg target_lataccel')
+        plt.title('color by GMM label, size by stdev vEgo', fontsize=10)
+        cbar_2d = plt.colorbar(scatter_2d, ticks=np.arange(gmm.n_components))
+        cbar_2d.set_label('GMM cluster label')
+        plt.savefig("tmp/features_roll_target_lataccel.png", dpi=384)
 
 
 

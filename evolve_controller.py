@@ -140,8 +140,16 @@ class ControlEvolver:
                             }, mf)
                     
                     history.append((iteration, best_fitness))
-                    print(f"Iteration {iteration}, Best fitness: {best_fitness}, Best params: {best_params}")
-                    log_file.write(f"Iteration {iteration}, Best fitness: {best_fitness}, Best params: {best_params}\n")
+                    now_str = datetime.datetime.utcnow().isoformat()
+                    print(f"Iteration {iteration}, Best fitness: {best_fitness}, time: {now_str}")
+                    log_file.write(f"Iteration {iteration}, Best fitness: {best_fitness}, time: {now_str}, Best params: {best_params}\n")
+                    # append progress CSV
+                    progress_csv = 'tmp/cmaes_progress.csv'
+                    write_header = not os.path.exists(progress_csv)
+                    with open(progress_csv, 'a') as cf:
+                        if write_header:
+                            cf.write('iteration,timestamp,best_fitness\n')
+                        cf.write(f"{iteration},{now_str},{best_fitness}\n")
                     log_file.flush()
                     # early stop if threshold achieved
                     if stop_below is not None and best_fitness < stop_below:
